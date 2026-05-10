@@ -83,6 +83,14 @@ block_header_t *find_free_memory(size_t size) {
       } else {
         prev->next_free = curr->next_free;
       }
+      if (curr->size > size && (curr->size - size) > sizeof(block_header_t)) {
+        int available_size = curr->size;
+        curr->size = size;
+        block_header_t* tmp = (block_header_t*)((char*)curr + size);
+        tmp->size = available_size - size;
+        tmp->is_free = 1;
+        add_to_sorted_free_list(tmp);
+      }
       return curr;
     } else {
       prev = curr;

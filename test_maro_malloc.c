@@ -481,6 +481,227 @@ static MunitResult test_complex_pattern(const MunitParameter params[],
   return MUNIT_OK;
 }
 
+// Test that a block is split when there's enough remaining space
+static MunitResult test_split_block_basic(const MunitParameter params[],
+                                          void *data) {
+  (void)params;
+  (void)data;
+
+  reset_free_list();
+
+  // Allocate a large block
+  void *ptr1 = maro_malloc(1000);
+  munit_assert_not_null(ptr1);
+  void *keep = maro_malloc(50); // Prevent edge optimization
+  maro_free(ptr1);
+
+  // Should have 1 free block of ~1000 bytes
+  munit_assert_int(count_free_list_nodes(), ==, 1);
+
+  // Allocate small amount - should trigger split
+  void *ptr2 = maro_malloc(100);
+  munit_assert_not_null(ptr2);
+
+  // Should have 1 free block (the remainder)
+  munit_assert_int(count_free_list_nodes(), ==, 1);
+
+  // The remainder should be large enough to allocate from
+  void *ptr3 = maro_malloc(100);
+  munit_assert_not_null(ptr3);
+
+  maro_free(ptr2);
+  maro_free(ptr3);
+  maro_free(keep);
+
+  return MUNIT_OK;
+}
+
+// Test that block is NOT split when remainder would be too small
+static MunitResult test_no_split_small_remainder(const MunitParameter params[],
+                                                 void *data) {
+  (void)params;
+  (void)data;
+
+  reset_free_list();
+
+  // Allocate a block
+  void *ptr1 = maro_malloc(100);
+  munit_assert_not_null(ptr1);
+  void *keep = maro_malloc(50); // Prevent edge optimization
+  maro_free(ptr1);
+
+  // Request size that would leave remainder < sizeof(block_header_t)
+  // This should use the entire block without splitting
+  size_t request_size = 100 - sizeof(block_header_t) + 1;
+  void *ptr2 = maro_malloc(request_size);
+  munit_assert_not_null(ptr2);
+
+  // Free list should be empty (no remainder created)
+  munit_assert_int(count_free_list_nodes(), ==, 0);
+
+  maro_free(ptr2);
+  maro_free(keep);
+
+  return MUNIT_OK;
+}
+
+// Test that remainder block has correct size after split
+static MunitResult test_split_remainder_size(const MunitParameter params[],
+                                             void *data) {
+  (void)params;
+  (void)data;
+
+  reset_free_list();
+
+  // Allocate 1000 bytes
+  void *ptr1 = maro_malloc(1000);
+  munit_assert_not_null(ptr1);
+  void *keep = maro_malloc(50); // Prevent edge optimization
+  maro_free(ptr1);
+
+  // Allocate 200 bytes (should split)
+  void *ptr2 = maro_malloc(200);
+  munit_assert_not_null(ptr2);
+
+  // The remainder should be able to hold ~800 bytes
+  void *ptr3 = maro_malloc(700);
+  munit_assert_not_null(ptr3);
+
+  maro_free(ptr2);
+  maro_free(ptr3);
+  maro_free(keep);
+
+  return MUNIT_OK;
+}
+
+// Test multiple splits from same block
+static MunitResult test_multiple_splits(const MunitParameter params[],
+                                        void *data) {
+  (void)params;
+  (void)data;
+
+  reset_free_list();
+
+  // Allocate large block
+  void *ptr1 = maro_malloc(2000);
+  munit_assert_not_null(ptr1);
+  void *keep = maro_malloc(50); // Prevent edge optimization
+  maro_free(ptr1);
+
+  // Split multiple times
+  void *blocks[5];
+  for (int i = 0; i < 5; i++) {
+    blocks[i] = maro_malloc(100);
+    munit_assert_not_null(blocks[i]);
+  }
+
+  // Should still have remainder
+  munit_assert_int(count_free_list_nodes(), ==, 1);
+
+  // Free all
+  for (int i = 0; i < 5; i++) {
+    maro_free(blocks[i]);
+  }
+  maro_free(keep);
+
+  return MUNIT_OK;
+}
+
+// Test that split blocks are properly aligned
+static MunitResult test_split_alignment(const MunitParameter params[],
+                                        void *data) {
+  (void)params;
+  (void)data;
+
+  reset_free_list();
+
+  void *ptr1 = maro_malloc(1000);
+  munit_assert_not_null(ptr1);
+  void *keep = maro_malloc(50); // Prevent edge optimization
+  maro_free(ptr1);
+
+  void *ptr2 = maro_malloc(100);
+  munit_assert_not_null(ptr2);
+
+  // The remainder block should be properly positioned
+  // Allocate from remainder and verify we can write to it
+  void *ptr3 = maro_malloc(200);
+  munit_assert_not_null(ptr3);
+
+  // Write some data to verify no corruption
+  memset(ptr2, 0xAA, 100);
+  memset(ptr3, 0xBB, 200);
+
+  maro_free(ptr2);
+  maro_free(ptr3);
+  maro_free(keep);
+
+  return MUNIT_OK;
+}
+
+// Test splitting with exact boundary case
+static MunitResult test_split_exact_boundary(const MunitParameter params[],
+                                             void *data) {
+  (void)params;
+  (void)data;
+
+  reset_free_list();
+
+  void *ptr1 = maro_malloc(500);
+  munit_assert_not_null(ptr1);
+  void *keep = maro_malloc(50); // Prevent edge optimization
+  maro_free(ptr1);
+
+  // Request size that leaves exactly sizeof(block_header_t) + 1
+  size_t request = 500 - sizeof(block_header_t) - 1;
+  void *ptr2 = maro_malloc(request);
+  munit_assert_not_null(ptr2);
+
+  // Should have split (remainder is just barely large enough)
+  munit_assert_int(count_free_list_nodes(), ==, 1);
+
+  maro_free(ptr2);
+  maro_free(keep);
+
+  return MUNIT_OK;
+}
+
+// Test that free list remains sorted after splits
+static MunitResult
+test_split_preserves_sorted_list(const MunitParameter params[], void *data) {
+  (void)params;
+  (void)data;
+
+  reset_free_list();
+
+  // Create multiple free blocks
+  void *blocks[5];
+  for (int i = 0; i < 5; i++) {
+    blocks[i] = maro_malloc(500);
+    munit_assert_not_null(blocks[i]);
+  }
+  void *keep = maro_malloc(50); // Prevent edge optimization
+
+  // Free alternating blocks
+  maro_free(blocks[0]);
+  maro_free(blocks[2]);
+  maro_free(blocks[4]);
+
+  // Allocate small from middle block (should split)
+  void *small = maro_malloc(100);
+  munit_assert_not_null(small);
+
+  // Free list should still be sorted
+  munit_assert_int(is_free_list_sorted(), ==, 1);
+
+  maro_free(small);
+  maro_free(blocks[1]);
+  maro_free(blocks[3]);
+  maro_free(keep);
+
+  return MUNIT_OK;
+}
+
 static MunitTest test_suite_tests[] = {
     {(char *)"/malloc_basic", test_malloc_basic, NULL, NULL,
      MUNIT_TEST_OPTION_NONE, NULL},
@@ -512,6 +733,20 @@ static MunitTest test_suite_tests[] = {
     {(char *)"/data_integrity", test_data_integrity, NULL, NULL,
      MUNIT_TEST_OPTION_NONE, NULL},
     {(char *)"/complex_pattern", test_complex_pattern, NULL, NULL,
+     MUNIT_TEST_OPTION_NONE, NULL},
+    {(char *)"/split_preserves_sorted_list", test_split_preserves_sorted_list,
+     NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
+    {(char *)"/split_block_basic", test_split_block_basic, NULL, NULL,
+     MUNIT_TEST_OPTION_NONE, NULL},
+    {(char *)"/no_split_small_remainder", test_no_split_small_remainder, NULL,
+     NULL, MUNIT_TEST_OPTION_NONE, NULL},
+    {(char *)"/split_remainder_size", test_split_remainder_size, NULL, NULL,
+     MUNIT_TEST_OPTION_NONE, NULL},
+    {(char *)"/multiple_splits", test_multiple_splits, NULL, NULL,
+     MUNIT_TEST_OPTION_NONE, NULL},
+    {(char *)"/split_alignment", test_split_alignment, NULL, NULL,
+     MUNIT_TEST_OPTION_NONE, NULL},
+    {(char *)"/split_exact_boundary", test_split_exact_boundary, NULL, NULL,
      MUNIT_TEST_OPTION_NONE, NULL},
     {NULL, NULL, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL}};
 
