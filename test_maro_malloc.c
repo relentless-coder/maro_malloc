@@ -2,6 +2,7 @@
 #include "munit.h"
 #include <stdio.h>
 #include <string.h>
+#define ALIGNMENT 8
 
 // Reset free list between tests
 extern block_header_t *free_list_head;
@@ -653,11 +654,11 @@ static MunitResult test_split_exact_boundary(const MunitParameter params[],
   maro_free(ptr1);
 
   // Request size that leaves exactly sizeof(block_header_t) + 1
-  size_t request = 500 - sizeof(block_header_t) - 1;
+  size_t request = 500 - sizeof(block_header_t) - ALIGNMENT;
   void *ptr2 = maro_malloc(request);
   munit_assert_not_null(ptr2);
 
-  // Should have split (remainder is just barely large enough)
+  // Should not split because
   munit_assert_int(count_free_list_nodes(), ==, 1);
 
   maro_free(ptr2);

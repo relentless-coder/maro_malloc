@@ -2,6 +2,7 @@
 #include "./maro_malloc.h"
 #include <stdio.h>
 #include <unistd.h>
+#define ALIGNMENT 8
 
 block_header_t *free_list_head = NULL;
 
@@ -17,8 +18,6 @@ int are_blocks_adjacent(block_header_t *p, block_header_t *q) {
 }
 
 block_header_t *add_to_sorted_free_list(block_header_t *free_block) {
-  printf("DEBUG add_to_sorted_free_list: adding %p, free_list_head=%p\n",
-         free_block, free_list_head);
   if (free_block == NULL) {
     return NULL;
   }
@@ -34,7 +33,8 @@ block_header_t *add_to_sorted_free_list(block_header_t *free_block) {
       prev = curr;
       curr = curr->next_free;
     }
-    printf("  -> Found position: prev=%p, curr=%p\n", prev, curr);
+    printf("  -> Found position: prev=%p, curr=%p\n relative to free_block",
+           prev, curr);
     if (are_blocks_adjacent(prev, free_block) == 1 &&
         are_blocks_adjacent(free_block, curr) == 1) {
       printf("  -> Case 1: Both adjacent\n");
@@ -43,7 +43,7 @@ block_header_t *add_to_sorted_free_list(block_header_t *free_block) {
       return free_list_head;
     } else if (are_blocks_adjacent(prev, free_block) == 0 &&
                are_blocks_adjacent(free_block, curr) == 1) {
-      printf("  -> Case 2: next adjacent\n");
+      printf("  -> Case 2: curr is adjacent\n");
 
       free_block->size = free_block->size + curr->size;
       free_block->next_free = curr->next_free;
@@ -84,9 +84,9 @@ block_header_t *find_free_memory(size_t size) {
         prev->next_free = curr->next_free;
       }
       if (curr->size > size && (curr->size - size) > sizeof(block_header_t)) {
-        int available_size = curr->size;
+        size_t available_size = curr->size;
         curr->size = size;
-        block_header_t* tmp = (block_header_t*)((char*)curr + size);
+        block_header_t *tmp = (block_header_t *)((char *)curr + size);
         tmp->size = available_size - size;
         tmp->is_free = 1;
         add_to_sorted_free_list(tmp);
@@ -105,11 +105,25 @@ void *maro_malloc(size_t size) {
     return NULL;
   }
   size_t block_size = sizeof(block_header_t) + size;
+  printf("======= block size before padding === %zu:\n", block_size);
+  if (block_size % ALIGNMENT != 0) {
+    block_size += ALIGNMENT - (block_size % ALIGNMENT);
+    printf("======= block size after padding ===== %zu:\n", block_size);
+  }
+  printf("maro_malloc block size is %zu\n", block_size);
   block_header_t *free_available = find_free_memory(block_size);
   if (free_available != NULL) {
     free_available->is_free = 0;
     free_available->next_free = NULL;
     return free_available + 1;
+  }
+  void *heap_end = sbrk(0);
+  uintptr_t addr = (uintptr_t)heap_end;
+  if (addr % ALIGNMENT != 0) {
+    void *padding = sbrk(ALIGNMENT - (addr % ALIGNMENT));
+    if (padding == (void *)-1) {
+      return NULL;
+    }
   }
   block_header_t *block = sbrk(block_size);
   if (block == (void *)-1) {
@@ -128,9 +142,6 @@ void maro_free(void *p) {
   block_header_t *header = (block_header_t *)p - 1;
 
   void *block_end = (char *)header + header->size;
-
-  printf("DEBUG maro_free: freeing %p, block_end=%p, sbrk(0)=%p\n", header,
-         block_end, sbrk(0));
 
   if (block_end == sbrk(0)) {
     printf("  -> Returning to OS\n");
