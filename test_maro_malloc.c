@@ -703,6 +703,65 @@ test_split_preserves_sorted_list(const MunitParameter params[], void *data) {
   return MUNIT_OK;
 }
 
+static MunitResult
+test_double_free_is_avoided_with_keep(const MunitParameter params[],
+                                      void *data) {
+  (void)params;
+  (void)data;
+
+  reset_free_list();
+
+  void *block_a = maro_malloc(100);
+
+  void *keep = maro_malloc(50);
+
+  maro_free(block_a);
+  maro_free(block_a);
+
+  munit_assert_int(count_free_list_nodes(), ==, 1);
+
+  void *ptr1 = maro_malloc(100);
+  void *ptr2 = maro_malloc(100);
+
+  munit_assert_ptr_not_equal(ptr1, ptr2);
+
+  maro_free(ptr1);
+  maro_free(ptr2);
+  maro_free(keep);
+
+  return MUNIT_OK;
+}
+
+static MunitResult
+test_double_free_is_avoided_without_keep(const MunitParameter params[],
+                                         void *data) {
+  (void)params;
+  (void)data;
+
+  reset_free_list();
+
+  void *block_a = maro_malloc(100);
+
+  maro_free(block_a);
+  maro_free(block_a);
+
+  void *block_b = maro_malloc(100);
+
+  munit_assert_ptr_equal(block_a, block_b);
+
+  void *ptr1 = maro_malloc(100);
+  void *ptr2 = maro_malloc(100);
+
+  munit_assert_ptr_not_equal(ptr1, ptr2);
+  munit_assert_ptr_not_equal(block_b, ptr1);
+
+  maro_free(ptr1);
+  maro_free(ptr2);
+  maro_free(block_b);
+
+  return MUNIT_OK;
+}
+
 static MunitTest test_suite_tests[] = {
     {(char *)"/malloc_basic", test_malloc_basic, NULL, NULL,
      MUNIT_TEST_OPTION_NONE, NULL},
@@ -748,6 +807,12 @@ static MunitTest test_suite_tests[] = {
     {(char *)"/split_alignment", test_split_alignment, NULL, NULL,
      MUNIT_TEST_OPTION_NONE, NULL},
     {(char *)"/split_exact_boundary", test_split_exact_boundary, NULL, NULL,
+     MUNIT_TEST_OPTION_NONE, NULL},
+    {(char *)"/no_double_free_with_keep", test_double_free_is_avoided_with_keep,
+     NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
+
+    {(char *)"/no_double_free_without_keep",
+     test_double_free_is_avoided_without_keep, NULL, NULL,
      MUNIT_TEST_OPTION_NONE, NULL},
     {NULL, NULL, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL}};
 

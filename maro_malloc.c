@@ -141,11 +141,17 @@ void maro_free(void *p) {
 
   block_header_t *header = (block_header_t *)p - 1;
 
+  if (header->is_free == 1)
+    return;
+
   void *block_end = (char *)header + header->size;
 
   if (block_end == sbrk(0)) {
     printf("  -> Returning to OS\n");
     sbrk(-(header->size));
+    if (sbrk(0) == block_end)
+      add_to_sorted_free_list(header);
+    header->is_free = 1;
     return;
   }
 
