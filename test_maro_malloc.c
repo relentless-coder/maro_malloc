@@ -1,7 +1,9 @@
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 #include "maro_malloc.h"
 #include "munit.h"
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 #define ALIGNMENT 8
 
 // Reset free list between tests
@@ -653,12 +655,11 @@ static MunitResult test_split_exact_boundary(const MunitParameter params[],
   void *keep = maro_malloc(50); // Prevent edge optimization
   maro_free(ptr1);
 
-  // Request size that leaves exactly sizeof(block_header_t) + 1
   size_t request = 500 - sizeof(block_header_t) - ALIGNMENT;
   void *ptr2 = maro_malloc(request);
   munit_assert_not_null(ptr2);
 
-  // Should not split because
+  // Should split because each block is divisble by 8.
   munit_assert_int(count_free_list_nodes(), ==, 1);
 
   maro_free(ptr2);
@@ -762,6 +763,40 @@ test_double_free_is_avoided_without_keep(const MunitParameter params[],
   return MUNIT_OK;
 }
 
+static MunitResult
+test_free_memory_blocks_are_aligned_without_initial_misalignment(
+    const MunitParameter params[], void *data) {
+  (void)params;
+  (void)data;
+  reset_free_list();
+  void *block_a = maro_malloc(1);
+  void *keep = maro_malloc(50);
+  munit_assert_int((uintptr_t)block_a % ALIGNMENT, ==, 0);
+  void *block_b = maro_malloc(53);
+  munit_assert_int((uintptr_t)block_b % ALIGNMENT, ==, 0);
+  maro_free(block_b);
+  void *block_d = maro_malloc(53);
+  munit_assert_ptr_equal(block_b, block_d);
+  maro_free(block_a);
+  maro_free(block_d);
+  maro_free(keep);
+  return MUNIT_OK;
+}
+
+static MunitResult
+test_free_memory_blocks_are_aligned_with_initial_misalignment(
+    const MunitParameter params[], void *data) {
+  (void)params;
+  (void)data;
+  reset_free_list();
+  sbrk(3);
+  void *block_a = maro_malloc(50);
+  munit_assert_int((uintptr_t)block_a % ALIGNMENT, ==, 0);
+  maro_free(block_a);
+
+  return MUNIT_OK;
+}
+
 static MunitTest test_suite_tests[] = {
     {(char *)"/malloc_basic", test_malloc_basic, NULL, NULL,
      MUNIT_TEST_OPTION_NONE, NULL},
@@ -813,6 +848,12 @@ static MunitTest test_suite_tests[] = {
 
     {(char *)"/no_double_free_without_keep",
      test_double_free_is_avoided_without_keep, NULL, NULL,
+     MUNIT_TEST_OPTION_NONE, NULL},
+    {(char *)"/free_memory_blocks_are_aligned_without_initial_misalignment",
+     test_free_memory_blocks_are_aligned_without_initial_misalignment, NULL,
+     NULL, MUNIT_TEST_OPTION_NONE, NULL},
+    {(char *)"/free_memory_blocks_are_aligned_with_initial_misalignment",
+     test_free_memory_blocks_are_aligned_with_initial_misalignment, NULL, NULL,
      MUNIT_TEST_OPTION_NONE, NULL},
     {NULL, NULL, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL}};
 
