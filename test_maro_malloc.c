@@ -771,9 +771,9 @@ test_free_memory_blocks_are_aligned_without_initial_misalignment(
   reset_free_list();
   void *block_a = maro_malloc(1);
   void *keep = maro_malloc(50);
-  munit_assert_int((uintptr_t)block_a % ALIGNMENT, ==, 0);
+  munit_assert_size((uintptr_t)block_a % ALIGNMENT, ==, 0);
   void *block_b = maro_malloc(53);
-  munit_assert_int((uintptr_t)block_b % ALIGNMENT, ==, 0);
+  munit_assert_size((uintptr_t)block_b % ALIGNMENT, ==, 0);
   maro_free(block_b);
   void *block_d = maro_malloc(53);
   munit_assert_ptr_equal(block_b, block_d);
@@ -791,9 +791,27 @@ test_free_memory_blocks_are_aligned_with_initial_misalignment(
   reset_free_list();
   sbrk(3);
   void *block_a = maro_malloc(50);
-  munit_assert_int((uintptr_t)block_a % ALIGNMENT, ==, 0);
+  munit_assert_size((uintptr_t)block_a % ALIGNMENT, ==, 0);
   maro_free(block_a);
 
+  return MUNIT_OK;
+}
+
+static MunitResult test_split_block_is_aligned(const MunitParameter params[],
+                                               void *data) {
+  (void)params;
+  (void)data;
+  reset_free_list();
+  void *block_a = maro_malloc(200);
+  void *keep = maro_malloc(50);
+  maro_free(block_a);
+  void *block_b = maro_malloc(74);
+  void *block_c = maro_malloc(93);
+  munit_assert_size((uintptr_t)block_b % ALIGNMENT, ==, 0);
+  munit_assert_size((uintptr_t)block_c % ALIGNMENT, ==, 0);
+  maro_free(block_b);
+  maro_free(block_c);
+  maro_free(keep);
   return MUNIT_OK;
 }
 
@@ -855,6 +873,8 @@ static MunitTest test_suite_tests[] = {
     {(char *)"/free_memory_blocks_are_aligned_with_initial_misalignment",
      test_free_memory_blocks_are_aligned_with_initial_misalignment, NULL, NULL,
      MUNIT_TEST_OPTION_NONE, NULL},
+    {(char *)"/split_block_in_free_memory_is_aligned",
+     test_split_block_is_aligned, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
     {NULL, NULL, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL}};
 
 static const MunitSuite test_suite = {(char *)"/maro_malloc", test_suite_tests,
